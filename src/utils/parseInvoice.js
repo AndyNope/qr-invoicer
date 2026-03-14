@@ -12,18 +12,39 @@ export function normalizeNumbers(text) {
   return text.replace(/(\d)[\u2019\u2018'](\d{3})/g, '$1$2');
 }
 
-/** Map common OCR mis-reads in digit positions of an IBAN */
-const OCR_DIGIT_MAP = { O: '0', C: '0', I: '1', L: '1', Z: '2', S: '5', B: '8', G: '6' };
+/** Map common OCR mis-reads (only applied when raw IBAN fails checksum) */
+const OCR_DIGIT_MAP = { O: '0', I: '1', L: '1', Z: '2', S: '5', B: '8', G: '6' };
 
-/** Clean a raw IBAN string – strip spaces, force uppercase, fix OCR artefacts, verify CH+19 */
+/** Compute IBAN mod-97 checksum – returns true if valid */
+function ibanChecksumValid(iban) {
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  const numeric = rearranged.replace(/[A-Z]/g, ch => String(ch.charCodeAt(0) - 55));
+  try { return BigInt(numeric) % 97n === 1n; } catch { return false; }
+}
+
+/**
+ * Clean a raw IBAN: strip spaces, uppercase, try as-is first.
+ * Only substitute common OCR mis-reads if the raw form fails checksum.
+ */
 function cleanIban(raw) {
-  const stripped = raw.replace(/\s/g, '').toUpperCase();
-  // After the two-letter country code, replace letter look-alikes with digits
-  const corrected = stripped.replace(/^([A-Z]{2})(.+)$/, (_, cc, digits) =>
-    cc + digits.replace(/[OCIZBSLGB]/g, ch => OCR_DIGIT_MAP[ch] ?? ch)
+  // Strip spaces and uppercase
+  const stripped = raw.replace(/\s/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // Extract CH + up to 21 chars (alphanumeric – QR-IBANs can have letters in BBAN)
+  const mRaw = stripped.match(/CH[A-Z0-9]{17,19}/);
+  const candidate = mRaw ? mRaw[0].slice(0, 21) : stripped.slice(0, 21);
+
+  // If mod-97 is already valid, return as-is (letter may be intentional)
+  if (candidate.length === 21 && ibanChecksumValid(candidate)) return candidate;
+
+  // Try OCR correction: replace letter look-alikes in digit positions (after country code)
+  const corrected = candidate.replace(/^([A-Z]{2})(.+)$/, (_, cc, bban) =>
+    cc + bban.replace(/[OIZSLGB]/g, ch => OCR_DIGIT_MAP[ch] ?? ch)
   );
-  const m = corrected.match(/CH\d{19}/);
-  return m ? m[0] : corrected.replace(/[^A-Z0-9]/g, '');
+  if (corrected.length === 21 && ibanChecksumValid(corrected)) return corrected;
+
+  // Return best-guess (raw candidate) even if checksum can't be fixed
+  return candidate || stripped;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,15 +308,11 @@ export function parseInvoice(text) {
   return parseText(text);
 }
 
-/** Validate Swiss IBAN format AND mod-97 checksum */
+/** Validate Swiss IBAN format AND mod-97 checksum (BBAN may be alphanumeric for QR-IBANs) */
 export function isValidIban(iban) {
   const cleaned = (iban || '').replace(/\s/g, '').toUpperCase();
-  if (!/^CH\d{19}$/.test(cleaned)) return false;
-  // IBAN mod-97: move first 4 chars to end, convert letters (A=10…Z=35), check % 97 === 1
-  const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
-  const numeric = rearranged.replace(/[A-Z]/g, ch => String(ch.charCodeAt(0) - 55));
-  // BigInt for large numbers
-  return BigInt(numeric) % 97n === 1n;
+  if (!/^CH[A-Z0-9]{19}$/.test(cleaned)) return false;
+  return ibanChecksumValid(cleaned);
 }
 
 /** Validate that an amount string is a positive number */
