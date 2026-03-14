@@ -287,10 +287,15 @@ export function parseInvoice(text) {
   return parseText(text);
 }
 
-/** Validate that an IBAN has the correct format */
+/** Validate Swiss IBAN format AND mod-97 checksum */
 export function isValidIban(iban) {
-  const cleaned = (iban || '').replace(/\s/g, '');
-  return /^CH\d{19}$/.test(cleaned);
+  const cleaned = (iban || '').replace(/\s/g, '').toUpperCase();
+  if (!/^CH\d{19}$/.test(cleaned)) return false;
+  // IBAN mod-97: move first 4 chars to end, convert letters (A=10…Z=35), check % 97 === 1
+  const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
+  const numeric = rearranged.replace(/[A-Z]/g, ch => String(ch.charCodeAt(0) - 55));
+  // BigInt for large numbers
+  return BigInt(numeric) % 97n === 1n;
 }
 
 /** Validate that an amount string is a positive number */

@@ -60,8 +60,14 @@ export default function InvoiceForm({ initial, onSubmit, onBack }) {
 
   const validate = () => {
     const errs = {};
-    if (!isValidIban(fields.iban))
-      errs.iban = 'Ungültige IBAN (Schweizer IBAN: CH + 19 Stellen)';
+    const ibanClean = (fields.iban || '').replace(/\s/g, '');
+    if (!ibanClean) {
+      errs.iban = 'IBAN ist erforderlich';
+    } else if (!/^CH\d{19}$/.test(ibanClean)) {
+      errs.iban = 'Format ungültig – Schweizer IBAN: CH + 19 Ziffern';
+    } else if (!isValidIban(fields.iban)) {
+      errs.iban = 'IBAN-Prüfziffer falsch – bitte manuell korrigieren';
+    }
     if (fields.amount && !isValidAmount(fields.amount))
       errs.amount = 'Ungültiger Betrag';
     if (!fields.creditorName.trim())
@@ -91,14 +97,29 @@ export default function InvoiceForm({ initial, onSubmit, onBack }) {
             subtitle="Person oder Firma, die das Geld erhält"
           />
           <div className="space-y-3">
-            <Field
-              label="IBAN *"
-              id="iban"
-              value={fields.iban}
-              onChange={set('iban')}
-              placeholder="CH56 0483 5012 3456 7000 0"
-              error={errors.iban}
-            />
+            {/* IBAN with live checksum hint */}
+            <div>
+              <label htmlFor="iban" className="label">IBAN *</label>
+              <input
+                id="iban"
+                className={`input-field ${errors.iban ? 'error' : ''}`}
+                value={fields.iban}
+                onChange={set('iban')}
+                placeholder="CH56 0483 5012 3456 7000 0"
+              />
+              {errors.iban
+                ? <p className="text-xs text-red-500 mt-1">{errors.iban}</p>
+                : (() => {
+                    const c = (fields.iban || '').replace(/\s/g, '').toUpperCase();
+                    if (!c) return null;
+                    if (!/^CH\d{19}$/.test(c))
+                      return <p className="text-xs text-amber-500 mt-1">Format: CH + 19 Ziffern</p>;
+                    if (!isValidIban(fields.iban))
+                      return <p className="text-xs text-amber-500 mt-1">⚠ Prüfziffer ungültig – bitte IBAN prüfen</p>;
+                    return <p className="text-xs text-green-600 mt-1">✓ IBAN gültig</p>;
+                  })()
+              }
+            </div>
             <Field
               label="Name / Firma *"
               id="creditorName"
