@@ -63,11 +63,11 @@ export default function InvoiceForm({ initial, onSubmit, onBack }) {
     const ibanClean = (fields.iban || '').replace(/\s/g, '');
     if (!ibanClean) {
       errs.iban = 'IBAN ist erforderlich';
-    } else if (!/^CH\d{19}$/.test(ibanClean)) {
+    } else if (!/^CH[A-Z0-9]{19}$/i.test(ibanClean)) {
       errs.iban = 'Format ungültig – Schweizer IBAN: CH + 19 Ziffern';
-    } else if (!isValidIban(fields.iban)) {
-      errs.iban = 'IBAN-Prüfziffer falsch – bitte manuell korrigieren';
     }
+    // Checksum is shown as a live warning but does NOT block submission
+    // (user can correct it manually; swissqrbill validates at generation time)
     if (fields.amount && !isValidAmount(fields.amount))
       errs.amount = 'Ungültiger Betrag';
     if (!fields.creditorName.trim())

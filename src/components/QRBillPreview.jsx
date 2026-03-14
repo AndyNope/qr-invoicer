@@ -13,7 +13,12 @@ export default function QRBillPreview({ fields, onBack, onReset }) {
       setSvgContent(svg);
     } catch (err) {
       console.error('SVG generation error:', err);
-      setError(`Fehler beim Generieren: ${err.message}`);
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('iban')) {
+        setError('IBAN-Prüfziffer ungültig – bitte gehe zurück und korrigiere die IBAN manuell.');
+      } else {
+        setError(`Fehler beim Generieren: ${msg}`);
+      }
     }
   }, [fields]);
 
@@ -127,8 +132,15 @@ export default function QRBillPreview({ fields, onBack, onReset }) {
         </div>
 
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {error}
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={onBack}
+              className="btn-secondary text-xs whitespace-nowrap"
+            >
+              ← IBAN korrigieren
+            </button>
           </div>
         )}
       </div>
