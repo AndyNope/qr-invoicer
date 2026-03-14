@@ -3,9 +3,9 @@ import StepIndicator from './components/StepIndicator';
 import DropZone from './components/DropZone';
 import InvoiceForm from './components/InvoiceForm';
 import QRBillPreview from './components/QRBillPreview';
-import { pdfToImages } from './utils/pdfToImages';
-import { runOCR } from './utils/ocr';
-import { parseInvoice } from './utils/parseInvoice';
+import { extractPdfTextDirect, scanQrFromPdf, scanQrFromImage, pdfToImages } from './utils/extractPdfDirect';
+import { runOCR, preprocessImage } from './utils/ocr';
+import { parseInvoice, parseSwissQR } from './utils/parseInvoice';
 
 const STEP = { UPLOAD: 0, PROCESSING: 1, REVIEW: 2, PREVIEW: 3 };
 
@@ -42,43 +42,94 @@ export default function App() {
     setProgressLabel('Datei wird geladen…');
 
     try {
-      let images;
       const isImage = file.type.startsWith('image/');
+      let parsed = null;
 
       if (isImage) {
-        // Images can be passed directly to Tesseract as a data URL
-        setProgress(20);
-        setProgressLabel('Bild wird vorbereitet…');
+        // ── IMAGE PATH ──────────────────────────────────────────────────
+        setProgress(15);
+        setProgressLabel('Bild wird geladen…');
         const dataUrl = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target.result);
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-        images = [dataUrl];
+
+        // 1. Try QR-scan on image first
+        setProgress(25);
+        setProgressLabel('QR-Code wird gesucht…');
+        try {
+          const qrText = await scanQrFromImage(dataUrl);
+          if (qrText) {
+            parsed = parseSwissQR(qrText);
+          }
+        } catch { /* ignore */ }
+
+        // 2. Fallback: preprocess + OCR
+        if (!parsed?.iban) {
+          setProgress(35);
+          setProgressLabel('Bildvorverarbeitung…');
+          const preprocessed = await preprocessImage(dataUrl);
+
+          setProgress(40);
+          setProgressLabel('OCR läuft…');
+          const text = await runOCR([preprocessed], (pct, label) => {
+            setProgress(Math.round(40 + pct * 0.5));
+            setProgressLabel(label);
+          });
+          parsed = parseInvoice(text);
+        }
+
       } else {
+        // ── PDF PATH ────────────────────────────────────────────────────
         const arrayBuffer = await file.arrayBuffer();
+
+        // 1. Try Swiss QR code scan on rendered pages
         setProgress(15);
-        setProgressLabel('PDF wird gerendert…');
-        images = await pdfToImages(arrayBuffer);
+        setProgressLabel('QR-Code wird gesucht…');
+        try {
+          const qrText = await scanQrFromPdf(arrayBuffer);
+          if (qrText) {
+            parsed = parseSwissQR(qrText);
+          }
+        } catch { /* ignore */ }
+
+        // 2. Try pdfjs text layer (works for digital/vector PDFs)
+        if (!parsed?.iban) {
+          setProgress(30);
+          setProgressLabel('Text wird aus PDF gelesen…');
+          try {
+            const directText = await extractPdfTextDirect(arrayBuffer.slice(0));
+            if (directText?.trim().length > 50) {
+              parsed = parseInvoice(directText);
+            }
+          } catch { /* ignore */ }
+        }
+
+        // 3. Fallback: render pages → preprocess → OCR
+        if (!parsed?.iban) {
+          setProgress(40);
+          setProgressLabel('PDF wird gerendert…');
+          const images = await pdfToImages(arrayBuffer.slice(0));
+
+          setProgress(50);
+          setProgressLabel(`${images.length} Seite(n) – Bildvorverarbeitung…`);
+          const preprocessed = await Promise.all(images.map(preprocessImage));
+
+          setProgress(55);
+          setProgressLabel('OCR läuft…');
+          const text = await runOCR(preprocessed, (pct, label) => {
+            setProgress(Math.round(55 + pct * 0.4));
+            setProgressLabel(label);
+          });
+          parsed = parseInvoice(text);
+        }
       }
-
-      setProgress(30);
-      setProgressLabel(`${images.length} Seite(n) erkannt, OCR läuft…`);
-
-      const text = await runOCR(images, (pct, label) => {
-        setProgress(pct);
-        setProgressLabel(label);
-      });
-
-      setProgress(92);
-      setProgressLabel('Felder werden extrahiert…');
-      const parsed = parseInvoice(text);
 
       setProgress(100);
       setProgressLabel('Fertig!');
-
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 400));
       setExtractedFields({ ...EMPTY_FIELDS, ...parsed });
       setStep(STEP.REVIEW);
     } catch (err) {
