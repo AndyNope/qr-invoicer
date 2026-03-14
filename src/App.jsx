@@ -83,13 +83,15 @@ export default function App() {
 
       } else {
         // ── PDF PATH ────────────────────────────────────────────────────
-        const arrayBuffer = await file.arrayBuffer();
+        // Keep the raw bytes; pass fresh slices to every pdfjs call so the
+        // original ArrayBuffer is never transferred/detached.
+        const rawBytes = await file.arrayBuffer();
 
         // 1. Try Swiss QR code scan on rendered pages
         setProgress(15);
         setProgressLabel('QR-Code wird gesucht…');
         try {
-          const qrText = await scanQrFromPdf(arrayBuffer);
+          const qrText = await scanQrFromPdf(rawBytes.slice(0));
           if (qrText) {
             parsed = parseSwissQR(qrText);
           }
@@ -100,7 +102,7 @@ export default function App() {
           setProgress(30);
           setProgressLabel('Text wird aus PDF gelesen…');
           try {
-            const directText = await extractPdfTextDirect(arrayBuffer.slice(0));
+            const directText = await extractPdfTextDirect(rawBytes.slice(0));
             if (directText?.trim().length > 50) {
               parsed = parseInvoice(directText);
             }
@@ -111,7 +113,7 @@ export default function App() {
         if (!parsed?.iban) {
           setProgress(40);
           setProgressLabel('PDF wird gerendert…');
-          const images = await pdfToImages(arrayBuffer.slice(0));
+          const images = await pdfToImages(rawBytes.slice(0));
 
           setProgress(50);
           setProgressLabel(`${images.length} Seite(n) – Bildvorverarbeitung…`);

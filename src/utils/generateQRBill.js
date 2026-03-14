@@ -7,16 +7,19 @@ import { svg2pdf } from 'svg2pdf.js';
  * @param {object} fields
  * @returns {object}  swissqrbill-compatible Data
  */
+/** Truncate to swissqrbill's max string length */
+function t(s, max = 35) { return (s || '').slice(0, max); }
+
 export function buildQRBillData(fields) {
   const data = {
     currency: fields.currency || 'CHF',
     creditor: {
-      account: fields.iban.replace(/\s/g, ''),
-      name: fields.creditorName,
-      address: fields.creditorAddress || '',
-      zip: fields.creditorZip || '',
-      city: fields.creditorCity || '',
-      country: fields.creditorCountry || 'CH',
+      account: (fields.iban || '').replace(/\s/g, ''),
+      name:    t(fields.creditorName, 70),
+      address: t(fields.creditorAddress),
+      zip:     t(fields.creditorZip, 16),
+      city:    t(fields.creditorCity),
+      country: t(fields.creditorCountry || 'CH', 2),
     },
   };
 
@@ -26,11 +29,11 @@ export function buildQRBillData(fields) {
 
   if (fields.debtorName) {
     data.debtor = {
-      name: fields.debtorName,
-      address: fields.debtorAddress || '',
-      zip: fields.debtorZip || '',
-      city: fields.debtorCity || '',
-      country: fields.debtorCountry || 'CH',
+      name:    t(fields.debtorName, 70),
+      address: t(fields.debtorAddress),
+      zip:     t(fields.debtorZip, 16),
+      city:    t(fields.debtorCity),
+      country: t(fields.debtorCountry || 'CH', 2),
     };
   }
 
